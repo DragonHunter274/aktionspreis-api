@@ -28,36 +28,37 @@ def update_cache():
     global cached_html
     cached_html = fetch_and_cache_html(URL)
 
-def filter_by_gültig(text):
-    return "gültig" in text
-
 def get_product_info():
-    price_pattern = r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)\s*€'
+    price_pattern = re.compile(r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)\s*€')
 
     if cached_html:
         soup = BeautifulSoup(cached_html, 'html5lib')
-        tables = soup.find_all('table')
-        if len(tables) == 1:
-            table_html = tables[0]
-            rows = table_html.find_all('tr', attrs={'onmouseover': True})
-            stores = []
-            for row in rows:
-                l = row.find_all('td')[1].small
-                pricetag = row.find_all('div')[2].get_text(strip=True, separator=' ')
-
-                match = re.search(price_pattern, pricetag)
-                if match:
-                    price = match.group(1)
-                storetag = row.select_one('div[style*="./system/images/unternehmen/logos/"]')
-                storename = storetag['title'].replace (" Angebote", "")
-                
-                if "letzte" not in l.text and "noch" in pricetag:
-                    stores.append({"name": storename, "status": "im angebot", "price": price, "raw": pricetag})
+        offer_tables = soup.find_all('table', attrs={'typeof': 'OfferCatalog'})
+        if not offer_tables:
+            return "No offer tables found on the webpage."
+        stores = []
+        for table in offer_tables:
+            for row in table.find_all('tr'):
+                logo_div = row.find('div', style=re.compile(r'unternehmen/logos'))
+                if not logo_div:
+                    continue
+                store_name = logo_div.get('title', '').replace(' Angebote', '')
+                tds = row.find_all('td')
+                if len(tds) < 2:
+                    continue
+                offer_td = tds[1]
+                offer_text = offer_td.get_text(strip=True, separator=' ')
+                price_span = offer_td.find('span', style=re.compile(r'#c03938'))
+                price = None
+                if price_span:
+                    m = price_pattern.search(price_span.get_text())
+                    if m:
+                        price = m.group(1)
+                if 'gültig' in offer_text and price:
+                    stores.append({"name": store_name, "status": "im angebot", "price": price, "raw": offer_text})
                 else:
-                    stores.append({"name": storename, "status": "nicht im angebot", "raw": pricetag})
-            return stores
-        else:
-            return "More than one table found on the webpage."
+                    stores.append({"name": store_name, "status": "nicht im angebot", "raw": offer_text})
+        return stores
     else:
         return "Failed to retrieve HTML content."
 
